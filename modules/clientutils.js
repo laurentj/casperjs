@@ -128,6 +128,24 @@
         };
 
         /**
+         * Checks if a given DOM element is visible in remove page.
+         *
+         * @param Object   element  DOM element
+         * @return Boolean
+         */
+        this.elementVisible = function elementVisible(elem) {
+            try {
+                var comp = window.getComputedStyle(elem, null);
+                return comp.visibility !== 'hidden' &&
+                       comp.display !== 'none' &&
+                       elem.offsetHeight > 0 &&
+                       elem.offsetWidth > 0;
+            } catch (e) {
+                return false;
+            }
+        }
+
+        /**
          * Base64 encodes a string, even binary ones. Succeeds where
          * window.btoa() fails.
          *
@@ -194,19 +212,21 @@
         };
 
         /**
-         * Fills a form with provided field values, and optionnaly submits it.
+         * Fills a form with provided field values, and optionally submits it.
          *
-         * @param  HTMLElement|String  form  A form element, or a CSS3 selector to a form element
-         * @param  Object              vals  Field values
-         * @return Object                    An object containing setting result for each field, including file uploads
+         * @param  HTMLElement|String  form      A form element, or a CSS3 selector to a form element
+         * @param  Object              vals      Field values
+         * @param  Function            findType  Element finder type (css, names, xpath)
+         * @return Object                        An object containing setting result for each field, including file uploads
          */
-        this.fill = function fill(form, vals) {
+        this.fill = function fill(form, vals, findType) {
             /*jshint maxcomplexity:8*/
             var out = {
                 errors: [],
                 fields: [],
                 files:  []
             };
+
             if (!(form instanceof HTMLElement) || typeof form === "string") {
                 this.log("attempting to fetch form element from selector: '" + form + "'", "info");
                 try {
@@ -218,30 +238,45 @@
                     }
                 }
             }
+
             if (!form) {
                 out.errors.push("form not found");
                 return out;
             }
-            for (var name in vals) {
-                if (!vals.hasOwnProperty(name)) {
+
+            var finders = {
+                css: function(inputSelector, formSelector) {
+                    return this.findAll(inputSelector, form);
+                },
+                names: function(elementName, formSelector) {
+                    return this.findAll('[name="' + elementName + '"]', form);
+                },
+                xpath: function(xpath, formSelector) {
+                    return this.findAll({type: "xpath", path: xpath}, form);
+                }
+            };
+
+            for (var fieldSelector in vals) {
+                if (!vals.hasOwnProperty(fieldSelector)) {
                     continue;
                 }
-                var field = this.findAll('[name="' + name + '"]', form);
-                var value = vals[name];
+                var field = finders[findType || "names"].call(this, fieldSelector, form),
+                    value = vals[fieldSelector];
                 if (!field || field.length === 0) {
-                    out.errors.push('no field named "' + name + '" in form');
+                    out.errors.push('no field matching ' + findType + ' selector "' + fieldSelector + '" in form');
                     continue;
                 }
                 try {
-                    out.fields[name] = this.setField(field, value);
+                    out.fields[fieldSelector] = this.setField(field, value);
                 } catch (err) {
                     if (err.name === "FileUploadError") {
                         out.files.push({
-                            name: name,
+                            type: findType,
+                            selector: fieldSelector,
                             path: err.path
                         });
-                    } else if(err.name === "FieldNotFound") {
-                        out.errors.push('Form field named "' + name + '" was not found.');
+                    } else if (err.name === "FieldNotFound") {
+                        out.errors.push('Unable to find field element in form: ' + err.toString());
                     } else {
                         out.errors.push(err.toString());
                     }
@@ -417,6 +452,35 @@
                 height: bounds.height,
                 visible: this.visible(selector)
             };
+        };
+
+        /**
+         * Retrieves information about the nodes matching the provided selector.
+         *
+         * @param  String|Object  selector  CSS3/XPath selector
+         * @return Array
+         */
+        this.getElementsInfo = function getElementsInfo(selector) {
+            var bounds = this.getElementsBounds(selector);
+            var eleVisible = this.elementVisible;
+            return [].map.call(this.findAll(selector), function(element, index) {
+                var attributes = {};
+                [].forEach.call(element.attributes, function(attr) {
+                    attributes[attr.name.toLowerCase()] = attr.value;
+                });
+                return {
+                    nodeName: element.nodeName.toLowerCase(),
+                    attributes: attributes,
+                    tag: element.outerHTML,
+                    html: element.innerHTML,
+                    text: element.innerText,
+                    x: bounds[index].left,
+                    y: bounds[index].top,
+                    width: bounds[index].width,
+                    height: bounds[index].height,
+                    visible: eleVisible(element)
+                };
+            });
         };
 
         /**
@@ -671,26 +735,33 @@
             /*jshint maxcomplexity:99 */
             var logValue, fields, out;
             value = logValue = (value || "");
-            if (field instanceof NodeList) {
+
+            if (field instanceof NodeList || field instanceof Array) {
                 fields = field;
                 field = fields[0];
             }
+
             if (!(field instanceof HTMLElement)) {
                 var error = new Error('Invalid field type; only HTMLElement and NodeList are supported');
                 error.name = 'FieldNotFound';
                 throw error;
             }
+
             if (this.options && this.options.safeLogs && field.getAttribute('type') === "password") {
                 // obfuscate password value
                 logValue = new Array(value.length + 1).join("*");
             }
+
             this.log('Set "' + field.getAttribute('name') + '" field value to ' + logValue, "debug");
+
             try {
                 field.focus();
             } catch (e) {
                 this.log("Unable to focus() input field " + field.getAttribute('name') + ": " + e, "warning");
             }
+
             var nodeName = field.nodeName.toLowerCase();
+
             switch (nodeName) {
                 case "input":
                     var type = field.getAttribute('type') || "text";
@@ -772,24 +843,13 @@
         };
 
         /**
-         * Checks if a given DOM element is visible in remote page.
+         * Checks if any element matching a given selector is visible in remote page.
          *
          * @param  String  selector  CSS3 selector
          * @return Boolean
          */
         this.visible = function visible(selector) {
-            try {
-                var elems = this.findAll(selector);
-                return Array.prototype.some.call(elems, function(el) {
-                    var comp = window.getComputedStyle(el, null);
-                    return comp.visibility !== 'hidden' &&
-                           comp.display !== 'none' &&
-                           el.offsetHeight > 0 &&
-                           el.offsetWidth > 0;
-                });
-            } catch (e) {
-                return false;
-            }
+            return [].some.call(this.findAll(selector), this.elementVisible);
         };
     };
 })(typeof exports === "object" ? exports : window);

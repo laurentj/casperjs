@@ -839,7 +839,10 @@ Logs a message with an optional level in an optional space. Available levels are
 
 **Signature:** ``fill(String selector, Object values[, Boolean submit])``
 
-Fills the fields of a form with given values and optionally submits it.
+Fills the fields of a form with given values and optionally submits it. Fields
+are referenced by their ``name`` attribute.
+
+.. versionchanged:: 1.1 To use :doc:`CSS3 or XPath selectors <../selectors>` instead, check the `fillSelectors()`_ and `fillXPath()`_ methods.
 
 Example with this sample html form:
 
@@ -883,8 +886,55 @@ A script to fill and submit this form::
 
 .. warning::
 
-   1. The ``fill()`` method currently can't fill **file fields using XPath selectors**; PhantomJS natively only allows the use of CSS3 selectors in its uploadFile method, hence this limitation.
+   1. The ``fill()`` method currently can't fill **file fields using XPath selectors**; PhantomJS natively only allows the use of CSS3 selectors in its ``uploadFile()`` method, hence this limitation.
    2. Please Don't use CasperJS nor PhantomJS to send spam, or I'll be calling the Chuck. More seriously, please just don't.
+
+``fillSelectors()``
+-------------------------------------------------------------------------------
+
+**Signature:** ``fillSelectors(String selector, Object values[, Boolean submit])``
+
+.. versionadded:: 1.1
+
+Fills form fields with given values and optionally submits it. Fields
+are referenced by ``CSS3`` selectors::
+
+    casper.start('http://some.tld/contact.form', function() {
+        this.fill('form#contact-form', {
+            'input[name="subject"]':    'I am watching you',
+            'input[name="content"]':    'So be careful.',
+            'input[name="civility"]':   'Mr',
+            'input[name="name"]':       'Chuck Norris',
+            'input[name="email"]':      'chuck@norris.com',
+            'input[name="cc"]':         true,
+            'input[name="attachment"]': '/Users/chuck/roundhousekick.doc'
+        }, true);
+    });
+
+
+``fillXPath()``
+-------------------------------------------------------------------------------
+
+**Signature:** ``fillXPath(String selector, Object values[, Boolean submit])``
+
+.. versionadded:: 1.1
+
+Fills form fields with given values and optionally submits it. While the ``form`` element is always referenced by a CSS3 selector, fields are referenced by ``XPath`` selectors::
+
+    casper.start('http://some.tld/contact.form', function() {
+        this.fill('form#contact-form', {
+            '//input[@name="subject"]':    'I am watching you',
+            '//input[@name="content"]':    'So be careful.',
+            '//input[@name="civility"]':   'Mr',
+            '//input[@name="name"]':       'Chuck Norris',
+            '//input[@name="email"]':      'chuck@norris.com',
+            '//input[@name="cc"]':         true,
+        }, true);
+    });
+
+.. warning::
+
+   The ``fillXPath()`` method currently can't fill **file fields using XPath selectors**; PhantomJS natively only allows the use of CSS3 selectors in its ``uploadFile()`` method, hence this limitation.
 
 .. index:: URL
 
@@ -916,6 +966,25 @@ Retrieves the value of an attribute on the first element matching the provided :
 
     casper.start('http://www.google.fr/', function() {
         require('utils').dump(this.getElementAttribute('div[title="Google"]', 'title')); // "Google"
+    });
+
+    casper.run();
+
+.. index:: DOM
+
+``getElementsAttribute()``
+-------------------------------------------------------------------------------
+
+**Signature:** ``getElementsAttribute(String selector, String attribute)``
+
+.. versionadded:: 1.1
+
+Retrieves the values of an attribute on each element matching the provided :doc:`selector <../selectors>`::
+
+    var casper = require('casper').create();
+
+    casper.start('http://www.google.fr/', function() {
+        require('utils').dump(this.getElementsAttribute('div[title="Google"]', 'title')); // "['Google']"
     });
 
     casper.run();
@@ -974,31 +1043,70 @@ It returns an array of objects with four keys: ``top``, ``left``, ``width`` and 
 
 Retrieves information about the first element matching the provided :doc:`selector <../selectors>`::
 
-    casper.start('http://google.com/', function() {
+    casper.start('http://google.fr/', function() {
         require('utils').dump(this.getElementInfo('#hplogo'));
     });
 
 Gives something like::
 
     {
-        "nodeName": "div",
         "attributes": {
-            "dir": "ltr",
-            "title": "Google",
             "align": "left",
+            "dir": "ltr",
             "id": "hplogo",
             "onload": "window.lol&&lol()",
-            "style": "background:url(images/srpr/logo3w.png) no-repeat;background-size:275px 95px;height:95px;width:275px"
+            "style": "height:110px;width:276px;background:url(/images/srpr/logo1w.png) no-repeat",
+            "title": "Google"
         },
-        "tag": "<div dir=\"ltr\" title=\"Google\" align=\"left\" id=\"hplogo\" onload=\"window.lol&amp;&amp;lol()\" style=\"background:url(images/srpr/logo3w.png) no-repeat;background-size:275px 95px;height:95px;width:275px\"><div nowrap=\"nowrap\" style=\"color:#777;font-size:16px;font-weight:bold;position:relative;left:214px;top:70px\">France</div></div>",
+        "height": 110,
         "html": "<div nowrap=\"nowrap\" style=\"color:#777;font-size:16px;font-weight:bold;position:relative;left:214px;top:70px\">France</div>",
+        "nodeName": "div",
+        "tag": "<div dir=\"ltr\" title=\"Google\" align=\"left\" id=\"hplogo\" onload=\"window.lol&amp;&amp;lol()\" style=\"height:110px;width:276px;background:url(/images/srpr/logo1w.png) no-repeat\"><div nowrap=\"nowrap\" style=\"color:#777;font-size:16px;font-weight:bold;position:relative;left:214px;top:70px\">France</div></div>",
         "text": "France\n",
-        "x": 582.5,
-        "y": 192,
-        "width": 275,
-        "height": 95,
-        "visible": true
+        "visible": true,
+        "width": 276,
+        "x": 62,
+        "y": 76
     }
+
+.. index:: DOM
+
+``getElementsInfo()``
+-------------------------------------------------------------------------------
+
+**Signature:** ``getElementsInfo(String selector)``
+
+.. versionadded:: 1.1
+
+Retrieves information about all elements matching the provided :doc:`selector <../selectors>`::
+
+    casper.start('http://google.fr/', function() {
+        require('utils').dump(this.getElementsInfo('#hplogo'));
+    });
+
+Gives something like::
+
+    [
+        {
+            "attributes": {
+                "align": "left",
+                "dir": "ltr",
+                "id": "hplogo",
+                "onload": "window.lol&&lol()",
+                "style": "height:110px;width:276px;background:url(/images/srpr/logo1w.png) no-repeat",
+                "title": "Google"
+            },
+            "height": 110,
+            "html": "<div nowrap=\"nowrap\" style=\"color:#777;font-size:16px;font-weight:bold;position:relative;left:214px;top:70px\">France</div>",
+            "nodeName": "div",
+            "tag": "<div dir=\"ltr\" title=\"Google\" align=\"left\" id=\"hplogo\" onload=\"window.lol&amp;&amp;lol()\" style=\"height:110px;width:276px;background:url(/images/srpr/logo1w.png) no-repeat\"><div nowrap=\"nowrap\" style=\"color:#777;font-size:16px;font-weight:bold;position:relative;left:214px;top:70px\">France</div></div>",
+            "text": "France\n",
+            "visible": true,
+            "width": 276,
+            "x": 62,
+            "y": 76
+        }
+    ]
 
 .. index:: Form
 
@@ -1310,6 +1418,38 @@ Sends native keyboard events to the element matching the provided :doc:`selector
         this.sendKeys('form.contact textarea#message', "Damn, I'm looking good.");
         this.click('form.contact input[type="submit"]');
     });
+
+.. versionadded:: 1.1
+
+Options
+~~~~~~~
+
+- ``(Boolean) keepFocus``:
+
+
+  ``sendKeys()`` by default will remove the focus on text input fields, which   will typically close autocomplete widgets. If you want to maintain focus, us  e   the ``keepFocus`` option. For example, if using jQuery-UI, you can click on   the first autocomplete suggestion using::
+
+      casper.then(function() {
+          this.sendKeys('form.contact input#name', 'action', {keepFocus: true});
+          this.click('form.contact ul.ui-autocomplete li.ui-menu-item:first-  child a');
+      });
+
+- ``(String) modifiers``:
+
+  ``sendKeys()`` accepts a ``modifiers`` option to support key modifiers. The   options is a string representing the composition of modifiers to use,   separated by the ``+`` character::
+
+      casper.then(function() {
+          this.sendKeys('document', 's', {modifiers: 'ctrl+alt+shift'});
+      });
+
+  Available modifiers are:
+
+  - ``ctrl``
+  - ``alt``
+  - ``shift``
+  - ``meta``
+  - ``keypad``
+
 
 .. index:: auth
 
@@ -1844,6 +1984,25 @@ Wait until a resource that matches the given ``testFx`` is loaded to process a n
 
     casper.run();
 
+.. _casper_waitforurl:
+
+.. index:: URL
+
+``waitForUrl()``
+-------------------------------------------------------------------------------
+
+**Signature:** ``waitForUrl(String|RegExp url[, Function then, Function onTimeout, Number timeout])``
+
+.. versionadded:: 1.1
+
+Waits for the current pahe url to match the provided argument (``String`` or ``RegExp``)::
+
+    casper.start('http://foo/').waitForUrl(/login\.html$/, function() {
+        this.echo('redirected to login.html');
+    });
+
+    casper.run();
+
 .. index:: selector
 
 ``waitForSelector()``
@@ -1898,6 +2057,7 @@ is changed to a different value before processing the next step. Uses `waitFor()
 -------------------------------------------------------------------------------
 
 **Signature:** ``waitForText(String text[, Function then, Function onTimeout, Number timeout])``
+
 .. versionadded:: 1.0
 
 Waits until the passed text is present in the page contents before processing the immediate next step. Uses `waitFor()`_::

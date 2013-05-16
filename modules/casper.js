@@ -746,45 +746,57 @@ Casper.prototype.fetchText = function fetchText(selector) {
 /**
  * Fills a form with provided field values.
  *
- * @param  String  selector  A DOM CSS3/XPath selector to the target form to fill
- * @param  Object  vals      Field values
- * @param  Boolean submit    Submit the form?
+ * @param  String selector  A DOM CSS3/XPath selector to the target form to fill
+ * @param  Object vals      Field values
+ * @param  Object options   The fill settings (optional)
  */
-Casper.prototype.fill = function fill(selector, vals, submit) {
+Casper.prototype.fillForm = function fillForm(selector, vals, options) {
     "use strict";
     this.checkStarted();
-    submit = submit === true ? submit : false;
-    if (!utils.isObject(vals)) {
-        throw new CasperError("Form values must be provided as an object");
-    }
-    this.emit('fill', selector, vals, submit);
-    var fillResults = this.evaluate(function _evaluate(selector, values) {
-       return __utils__.fill(selector, values);
-    }, selector, vals);
+
+    var selectorType = options && options.selectorType || "names",
+        submit = !!(options && options.submit);
+
+    this.emit('fill', selector, vals, options);
+
+    var fillResults = this.evaluate(function _evaluate(selector, vals, selectorType) {
+        try {
+            return __utils__.fill(selector, vals, selectorType);
+        } catch (exception) {
+            return {exception: exception.toString()};
+        }
+    }, selector, vals, selectorType);
+
     if (!fillResults) {
         throw new CasperError("Unable to fill form");
+    } else if (fillResults && fillResults.exception) {
+        throw new CasperError("Unable to fill form: " + fillResults.exception);
     } else if (fillResults.errors.length > 0) {
         throw new CasperError(f('Errors encountered while filling form: %s',
                               fillResults.errors.join('; ')));
     }
+
     // File uploads
     if (fillResults.files && fillResults.files.length > 0) {
         if (utils.isObject(selector) && selector.type === 'xpath') {
             this.warn('Filling file upload fields is currently not supported using ' +
                       'XPath selectors; Please use a CSS selector instead.');
         } else {
-            (function _each(self) {
-                fillResults.files.forEach(function _forEach(file) {
-                    if (!file || !file.path) {
-                        return;
-                    }
-                    if (!fs.exists(file.path)) {
-                        throw new CasperError('Cannot upload nonexistent file: ' + file.path);
-                    }
-                    var fileFieldSelector = [selector, 'input[name="' + file.name + '"]'].join(' ');
-                    self.page.uploadFile(fileFieldSelector, file.path);
-                });
-            })(this);
+            fillResults.files.forEach(function _forEach(file) {
+                if (!file || !file.path) {
+                    return;
+                }
+                if (!fs.exists(file.path)) {
+                    throw new CasperError('Cannot upload nonexistent file: ' + file.path);
+                }
+                var fileFieldSelector;
+                if (file.type === "names") {
+                    fileFieldSelector = [selector, 'input[name="' + file.selector + '"]'].join(' ');
+                } else if (file.type === "css") {
+                    fileFieldSelector = [selector, file.selector].join(' ');
+                }
+                this.page.uploadFile(fileFieldSelector, file.path);
+            }.bind(this));
         }
     }
     // Form submission?
@@ -808,6 +820,60 @@ Casper.prototype.fill = function fill(selector, vals, submit) {
             }
         }, selector);
     }
+}
+
+/**
+ * Fills a form with provided field values using the Name attribute.
+ *
+ * @param  String  formSelector  A DOM CSS3/XPath selector to the target form to fill
+ * @param  Object  vals          Field values
+ * @param  Boolean submit        Submit the form?
+ */
+Casper.prototype.fillNames = function fillNames(formSelector, vals, submit) {
+    "use strict";
+    return this.fillForm(formSelector, vals, {
+        submit: submit,
+        selectorType: 'names'
+    });
+};
+
+/**
+ * Fills a form with provided field values using CSS3 selectors.
+ *
+ * @param  String  formSelector  A DOM CSS3/XPath selector to the target form to fill
+ * @param  Object  vals          Field values
+ * @param  Boolean submit        Submit the form?
+ */
+Casper.prototype.fillSelectors = function fillSelectors(formSelector, vals, submit) {
+    "use strict";
+    return this.fillForm(formSelector, vals, {
+        submit: submit,
+        selectorType: 'css'
+    });
+};
+
+/**
+ * Fills a form with provided field values using the Name attribute by default.
+ *
+ * @param  String  formSelector  A DOM CSS3/XPath selector to the target form to fill
+ * @param  Object  vals          Field values
+ * @param  Boolean submit        Submit the form?
+ */
+Casper.prototype.fill = Casper.prototype.fillNames;
+
+/**
+ * Fills a form with provided field values using XPath selectors.
+ *
+ * @param  String  formSelector  A DOM CSS3/XPath selector to the target form to fill
+ * @param  Object  vals          Field values
+ * @param  Boolean submit        Submit the form?
+ */
+Casper.prototype.fillXPath = function fillXPath(formSelector, vals, submit) {
+    "use strict";
+    return this.fillForm(formSelector, vals, {
+        submit: submit,
+        selectorType: 'xpath'
+    });
 };
 
 /**
@@ -897,6 +963,25 @@ Casper.prototype.getElementAttr = function getElementAttr(selector, attribute) {
 };
 
 /**
+ * Retrieves the value of an attribute for each element matching the provided
+ * DOM CSS3/XPath selector.
+ *
+ * @param  String  selector   A DOM CSS3/XPath selector
+ * @param  String  attribute  The attribute name to lookup
+ * @return Array
+ */
+Casper.prototype.getElementsAttribute =
+Casper.prototype.getElementsAttr = function getElementsAttr(selector, attribute) {
+    "use strict";
+    this.checkStarted();
+    return this.evaluate(function _evaluate(selector, attribute) {
+        return [].map.call(__utils__.findAll(selector), function(element) {
+            return element.getAttribute(attribute);
+        });
+    }, selector, attribute);
+}
+
+/**
  * Retrieves boundaries for a DOM element matching the provided DOM CSS3/XPath selector.
  *
  * @param  String  selector  A DOM CSS3/XPath selector
@@ -931,6 +1016,23 @@ Casper.prototype.getElementInfo = function getElementInfo(selector) {
     }
     return this.evaluate(function(selector) {
         return __utils__.getElementInfo(selector);
+    }, selector);
+};
+
+/**
+ * Retrieves information about the nodes matching the provided selector.
+ *
+ * @param String|Objects  selector  CSS3/XPath selector
+ * @return Array
+ */
+Casper.prototype.getElementsInfo = function getElementsInfo(selector) {
+    "use strict";
+    this.checkStarted();
+    if (!this.exists(selector)) {
+        throw new CasperError(f("Cannot get information from %s: no elements found.", selector));
+    }
+    return this.evaluate(function(selector) {
+        return __utils__.getElementsInfo(selector);
     }, selector);
 };
 
@@ -1255,7 +1357,7 @@ Casper.prototype.open = function open(location, settings) {
     // http method
     // taken from https://github.com/ariya/phantomjs/blob/master/src/webpage.cpp#L302
     var methods = ["get", "head", "put", "post", "delete"];
-    if (settings.method && (!utils.isString(settings.method) || methods.indexOf(settings.method) === -1)) {
+    if (settings.method && (!utils.isString(settings.method) || methods.indexOf(settings.method.toLowerCase()) === -1)) {
         throw new CasperError("open(): settings.method must be part of " + methods.join(', '));
     }
     // http data
@@ -1429,6 +1531,11 @@ Casper.prototype.runStep = function runStep(step) {
 /**
  * Sends keys to given element.
  *
+ * Options:
+ *
+ * - eventType: "keypress", "keyup" or "keydown" (default: "keypress")
+ * - modifiers: a string defining the key modifiers, eg. "alt", "alt+shift"
+ *
  * @param  String  selector  A DOM CSS3 compatible selector
  * @param  String  keys      A string representing the sequence of char codes to send
  * @param  Object  options   Options
@@ -1445,15 +1552,17 @@ Casper.prototype.sendKeys = function(selector, keys, options) {
         type = utils.getPropertyPath(elemInfos, 'attributes.type'),
         supported = ["color", "date", "datetime", "datetime-local", "email",
                      "hidden", "month", "number", "password", "range", "search",
-                     "tel", "text", "time", "url", "week"];
-    var isTextInput = false;
+                     "tel", "text", "time", "url", "week"],
+        isTextInput = false;
     if (tag === 'textarea' || (tag === 'input' && supported.indexOf(type) !== -1)) {
         // clicking on the input element brings it focus
         isTextInput = true;
         this.click(selector);
     }
-    this.page.sendEvent(options.eventType, keys);
-    if (isTextInput) {
+    var modifiers = utils.computeModifier(options && options.modifiers,
+                                          this.page.event.modifier)
+    this.page.sendEvent(options.eventType, keys, null, null, modifiers);
+    if (isTextInput && !options.keepFocus) {
         // remove the focus
         this.evaluate(function(selector) {
             __utils__.findOne(selector).blur();
@@ -1837,7 +1946,11 @@ Casper.prototype.wait = function wait(timeout, then) {
         setTimeout(function _check(self) {
             self.log(f("wait() finished waiting for %dms.", timeout), "info");
             if (then) {
-                then.call(self, self);
+                try {
+                    then.call(self, self);
+                } catch (error) {
+                    self.emit('wait.error', error);
+                }
             }
             self.waitDone();
         }, timeout, this);
@@ -1950,6 +2063,28 @@ Casper.prototype.waitForResource = function waitForResource(test, then, onTimeou
     timeout = timeout ? timeout : this.options.waitTimeout;
     return this.waitFor(function _check() {
         return this.resourceExists(test);
+    }, then, onTimeout, timeout);
+};
+
+/**
+ * Waits for a given url to be loaded.
+ *
+ * @param  String|RegExp  url  The url to wait for
+ * @param  Function         then       The next step to perform (optional)
+ * @param  Function         onTimeout  A callback function to call on timeout (optional)
+ * @return Casper
+ */
+Casper.prototype.waitForUrl = function waitForUrl(url, then, onTimeout, timeout) {
+    "use strict";
+    this.checkStarted();
+    timeout = timeout ? timeout : this.options.waitTimeout;
+    return this.waitFor(function _check() {
+        if (utils.isString(url)) {
+            return this.getCurrentUrl().indexOf(url) !== -1;
+        } else if (utils.isRegExp(url)) {
+            return url.test(this.getCurrentUrl());
+        }
+        throw new CasperError('invalid url argument');
     }, then, onTimeout, timeout);
 };
 
@@ -2262,13 +2397,17 @@ function createPage(casper) {
         casper.emit('load.finished', status);
         casper.loadInProgress = false;
     };
-    page.onNavigationRequested = function onNavigationRequested(url, type, lock, isMainFrame) {
-        casper.log(f('Navigation requested: url=%s, type=%s, lock=%s, isMainFrame=%s',
-                     url, type, lock, isMainFrame), "debug");
+    page.onNavigationRequested = function onNavigationRequested(url, type, willNavigate, isMainFrame) {
+        casper.log(f('Navigation requested: url=%s, type=%s, willNavigate=%s, isMainFrame=%s',
+                     url, type, willNavigate, isMainFrame), "debug");
         if (isMainFrame && casper.requestUrl !== url) {
             casper.navigationRequested  = true;
+
+            if (willNavigate) {
+                casper.requestUrl = url;
+            }
         }
-        casper.emit('navigation.requested', url, type, lock, isMainFrame);
+        casper.emit('navigation.requested', url, type, willNavigate, isMainFrame);
     };
     page.onPageCreated = function onPageCreated(popupPage) {
         casper.emit('popup.created', popupPage);
@@ -2292,13 +2431,13 @@ function createPage(casper) {
         }
         casper.handleReceivedResource(resource);
     };
-    page.onResourceRequested = function onResourceRequested(request) {
-        casper.emit('resource.requested', request);
-        if (request.url === casper.requestUrl) {
-            casper.emit('page.resource.requested', request);
+    page.onResourceRequested = function onResourceRequested(requestData, request) {
+        casper.emit('resource.requested', requestData, request);
+        if (requestData.url === casper.requestUrl) {
+            casper.emit('page.resource.requested', requestData, request);
         }
         if (utils.isFunction(casper.options.onResourceRequested)) {
-            casper.options.onResourceRequested.call(casper, casper, request);
+            casper.options.onResourceRequested.call(casper, casper, requestData, request);
         }
     };
     page.onUrlChanged = function onUrlChanged(url) {
